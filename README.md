@@ -1,1 +1,1 @@
-# new-repo-template
+# astra-control-center-2310
