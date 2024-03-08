@@ -1,0 +1,50 @@
+---
+sidebar: sidebar
+permalink: concepts/licensing.html
+keywords: license, licensing
+summary: Learn about how the actions you can perform with Astra Control Center differ based on license status, and about how your use of Astra Control Center affects license consumption.
+---
+
+= Licensing
+:hardbreaks:
+:icons: font
+:imagesdir: ../media/concepts/
+
+[.lead]
+When you deploy Astra Control Center, it is installed with an embedded 90-day evaluation license for 4,800 CPU units. If you need more capacity or a longer evaluation period, or want to upgrade to a full license, you can obtain a different evaluation license or full license from NetApp.
+
+You obtain a license in one of the following ways: 
+
+* If you are evaluating Astra Control Center and need different evaluation terms than what is included in the embedded evaluation license, contact NetApp to request a different evaluation license file.  
+
+* link:https://mysupport.netapp.com/site/[If you already purchased Astra Control Center, generate your NetApp license file (NLF)^] by logging in to the NetApp Support Site and navigating to your software licenses under the Systems menu.
+
+For details about licenses needed for ONTAP storage backends, refer to link:../get-started/requirements.html[supported storage backends].
+
+NOTE: Make sure that your license enables at least as many CPU units as you need. If the number of CPU units that Astra Control Center is currently managing exceeds the available CPU units in the new license being applied, you will not be able to apply the new license.
+
+== Evaluation licenses and full licenses
+An embedded evaluation license is provided with a new Astra Control Center installation. An evaluation license enables the same capabilities and features as a full license for a limited (90 day) period. After the evaluation period, a full license is required to continue with full functionality. 
+
+== License expiration
+If the active Astra Control Center license expires, UI and API functionality for the following features are unavailable:
+
+* Manual local snapshots and backups
+* Scheduled local snapshots and backups
+* Restoring from a snapshot or backup
+* Cloning from a snapshot or current state
+* Managing new applications
+* Configuring replication policies
+//* Applying a new license if the number of CPU units currently managed by Astra Control Center exceeds the available CPU units in the license being applied
+
+== How license consumption is calculated
+
+When you add a new cluster to Astra Control Center, it doesn't count toward consumed licenses until at least one application running on the cluster is managed by Astra Control Center.
+
+When you start managing an app on a cluster, all of that cluster's CPU units are included in the Astra Control Center license consumption, except Red Hat OpenShift cluster node CPU units that are reported by a using the label `node-role.kubernetes.io/infra: ""`.
+
+NOTE: Red Hat OpenShift infrastructure nodes do not consume licenses in Astra Control Center. To mark a node as an infrastructure node, apply the label `node-role.kubernetes.io/infra: ""` to the node.
+
+== Find more information
+* link:../get-started/setup_overview.html#add-a-license-for-astra-control-center[Add a license when you first set up Astra Control Center]
+* link:../use/update-licenses.html[Update an existing license]
