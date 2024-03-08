@@ -1,0 +1,314 @@
+---
+sidebar: sidebar
+permalink: use/protect-apps.html
+keywords: backup, back up, backup apps, back up apps, snapshots, snapshot an app, take a snapshot, take a backup, view backups, view snapshots, set policy, set schedule, schedule backups, schedule snapshots
+summary: Protect your apps by taking snapshots and backups using an automated protection policy or on an ad-hoc basis.
+---
+
+= Protect apps with snapshots and backups
+:hardbreaks:
+:icons: font
+:imagesdir: ../media/use/
+
+[.lead]
+Protect all apps by taking snapshots and backups using an automated protection policy or on an ad-hoc basis. You can use the Astra Control Center UI or https://docs.netapp.com/us-en/astra-automation[the Astra Control API^] to protect apps.
+
+.About this task
+
+* *Helm deployed apps*: If you use Helm to deploy apps, Astra Control Center requires Helm version 3. Managing and cloning apps deployed with Helm 3 (or upgraded from Helm 2 to Helm 3) are fully supported. Apps deployed with Helm 2 are not supported.
+
+* *(OpenShift clusters only) Add policies*: When you create a project for hosting an app on an OpenShift cluster, the project (or Kubernetes namespace) is assigned a SecurityContext UID. To enable Astra Control Center to protect your app and move the app to another cluster or project in OpenShift, you need to add policies that enable the app to run as any UID. As an example, the following OpenShift CLI commands grant the appropriate policies to a WordPress app.
++
+`oc new-project wordpress`
+`oc adm policy add-scc-to-group anyuid system:serviceaccounts:wordpress`
+`oc adm policy add-scc-to-user privileged -z default -n wordpress`
+
+You can do the following tasks related to protecting your app data:
+
+* <<Configure a protection policy>>
+* <<Create a snapshot>>
+* <<Create a backup>>
+* <<Enable backup and restore for ontap-nas-economy operations>>
+* <<Create an immutable backup>>
+* <<View snapshots and backups>>
+* <<Delete snapshots>>
+* <<Cancel backups>>
+* <<Delete backups>>
+
+== Configure a protection policy
+
+A protection policy protects an app by creating snapshots, backups, or both at a defined schedule. You can choose to create snapshots and backups hourly, daily, weekly, and monthly, and you can specify the number of copies to retain.
+
+If you need backups or snapshots to run more frequently than once per hour, you can https://docs.netapp.com/us-en/astra-automation/workflows/workflows_before.html[use the Astra Control REST API to create snapshots and backups^].
+
+NOTE: If you are defining a protection policy that creates immutable backups to write once read many (WORM) buckets, ensure that the retention time for the backups is not shorter than the retention period configured for the bucket.
+
+//ASTRADOC-150
+TIP: Offset backup and replication schedules to avoid schedule overlaps. For example, perform backups at the top of the hour every hour and schedule replication to start with a 5-minute offset and a 10-minute interval.
+
+.Steps
+
+. Select *Applications* and then select the name of an app.
+. Select *Data Protection*.
+. Select *Configure Protection Policy*.
+//+
+//image:screenshot-configure-protection-policy.gif[A screenshot of the Data protection tab for an app which enables you to configure a protection policy.]
+
+. Define a protection schedule by choosing the number of snapshots and backups to keep hourly, daily, weekly, and monthly.
++
+You can define the hourly, daily, weekly, and monthly schedules concurrently. A schedule won't turn active until you set a retention level.
++
+When you set a retention level for backups, you can choose the bucket where you'd like to store the backups.
++
+The following example sets four protection schedules: hourly, daily, weekly, and monthly for snapshots and backups.
++
+image:screenshot-config-protection-policy.png[A screenshot of a sample configuration policy where you can choose to take snapshots and backups on an hourly, daily, weekly, or monthly basis.]
+
+. Select *Review*.
+. Select *Set Protection Policy.*
+
+.Result
+
+Astra Control implements the data protection policy by creating and retaining snapshots and backups using the schedule and retention policy that you defined.
+
+== Create a snapshot
+
+You can create an on-demand snapshot at any time.
+
+.About this task
+Astra Control supports snapshot creation using storage classes backed by the following drivers:
+
+* `ontap-nas`
+* `ontap-san`
+* `ontap-san-economy`
+
+IMPORTANT: If your app uses a storage class backed by the `ontap-nas-economy` driver, snapshots can't be created. Use an alternate storage class for snapshots.
+
+.Steps
+
+. Select *Applications*.
+. From the Options menu in the *Actions* column for the desired app, select *Snapshot*.
+. Customize the name of the snapshot and then select *Next*.
+. Review the snapshot summary and select *Snapshot*.
+
+.Result
+
+The snapshot process begins. A snapshot is successful when the status is *Healthy* in the *State* column on the *Data protection* > *Snapshots* page.
+
+== Create a backup
+
+You can back up an app at any time. 
+
+.About this task
+Buckets in Astra Control do not report available capacity. Before backing up or cloning apps managed by Astra Control, check bucket information in the appropriate storage management system.
+
+If your app uses a storage class backed by the `ontap-nas-economy` driver, you need to <<Enable backup and restore for ontap-nas-economy operations,enable backup and restore>> functionality. Be sure that you have defined a `backendType` parameter in your https://docs.netapp.com/us-en/trident/trident-reference/objects.html#kubernetes-storageclass-objects[Kubernetes storage object^] with a value of `ontap-nas-economy` before performing any protection operations.
+
+[NOTE]
+=====
+Astra Control supports backup creation using storage classes backed by the following drivers:
+
+* `ontap-nas`
+* `ontap-nas-economy`
+* `ontap-san`
+* `ontap-san-economy`
+=====
+
+.Steps
+
+. Select *Applications*.
+. From the Options menu in the *Actions* column for the desired app, select *Back up*.
+. Customize the name of the backup.
+. Choose whether to back up the app from an existing snapshot. If you select this option, you can choose from a list of existing snapshots.
+. Choose a destination bucket for the backup from the list of storage buckets.
+. Select *Next*.
+. Review the backup summary and select *Back up*.
+
+.Result
+
+Astra Control creates a backup of the app.
+
+[NOTE]
+===============================
+* If your network has an outage or is abnormally slow, a backup operation might time out. This causes the backup to fail.
+* If you need to cancel a running backup, use the instructions in <<Cancel backups>>. To delete the backup, wait until it has completed and then use the instructions in <<Delete backups>>.
+* After a data protection operation (clone, backup, restore) and subsequent persistent volume resize, there is up to a twenty-minute delay before the new volume size is shown in the UI. The data protection operation is successful within minutes, and you can use the management software for the storage backend to confirm the change in volume size.
+===============================
+
+== Enable backup and restore for ontap-nas-economy operations
+//Duplicated in ACS
+
+Astra Control Provisioner provides backup and restore functionality that can be enabled for storage backends that are using the `ontap-nas-economy` storage class.
+
+.Before you begin
+
+* You have link:../use/enable-acp.html[enabled Astra Control Provisioner].
+* You have defined an application in Astra Control. This application will have limited protection functionality until you complete this procedure.
+* You have `ontap-nas-economy` selected as the default storage class for your storage backend.
+
+.Expand for configuration steps
+[%collapsible]
+====
+. Do the following on the ONTAP storage backend:
+.. Find the SVM that is hosting the `ontap-nas-economy`-based volumes of the application.
+.. Log in to a terminal connected to ONTAP where the volumes are created.
+.. Hide the snapshot directory for the SVM:
++
+NOTE: This change affects the entire SVM. The hidden directory will continue to be accessible. 
++
+[source,console]
+----
+nfs modify -vserver <svm name> -v3-hide-snapshot enabled
+----
++
+IMPORTANT: Verify that the snapshot directory on the ONTAP storage backend is hidden. Failure to hide this directory might lead to loss of access to your application, especially if it is using NFSv3.
+
+. Do the following in Astra Trident: 
+.. Enable the snapshot directory for each PV that is `ontap-nas-economy` based and associated with the application:
++
+[source,console]
+----
+tridentctl update volume <pv name> --snapshot-dir=true --pool-level=true -n trident
+----
+
+.. Confirm that the snapshot directory has been enabled for each associated PV:
++
+[source,console]
+----
+tridentctl get volume <pv name> -n trident -o yaml | grep snapshotDir
+----
++
+Response:
++
+----
+snapshotDirectory: "true"
+----
+
+. In Astra Control, refresh the application after enabling all associated snapshot directories so that Astra Control recognizes the changed value. 
+
+.Result
+
+The application is ready to backup and restore using Astra Control. Each PVC is also available to be used by other applications for backups and restores.
+
+====
+// End snippet
+
+== Create an immutable backup
+An immutable backup cannot be modified, deleted, or overwritten as long as the retention policy on the bucket that stores the backup forbids it. You can create immutable backups by backing up applications to buckets that have a retention policy configured. Refer to link:../concepts/data-protection.html#immutable-backups[Data protection^] for important information about working with immutable backups.
+
+.Before you begin
+You need to configure the destination bucket with a retention policy. How you do this will differ depending on which storage provider you use. Refer to the storage provider documentation for more information:
+
+* *Amazon Web Services*: https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock-console.html[Enable S3 Object Lock when creating the bucket and set a default retention mode of "governance" with a default retention period^].
+//* *Google Cloud*: https://cloud.google.com/storage/docs/using-bucket-lock[Configure a bucket with a retention policy and specify a retention period^].
+//* *Microsoft Azure*: https://learn.microsoft.com/en-us/azure/storage/blobs/immutable-policy-configure-container-scope?tabs=azure-portal[Configure a blob storage bucket with a time-based retention policy on container-level scope^].
+* *NetApp StorageGRID*: https://docs.netapp.com/us-en/storagegrid-117/tenant/creating-s3-bucket.html[Enable S3 Object Lock when creating the bucket and set a default retention mode of "compliance" with a default retention period^].
+
+NOTE: Buckets in Astra Control do not report available capacity. Before backing up or cloning apps managed by Astra Control, check bucket information in the appropriate storage management system.
+
+IMPORTANT: If your app uses a storage class backed by the `ontap-nas-economy` driver, be sure that you have defined a `backendType` parameter in your https://docs.netapp.com/us-en/trident/trident-reference/objects.html#kubernetes-storageclass-objects[Kubernetes storage object^] with a value of `ontap-nas-economy` before performing any protection operations.
+
+.Steps
+
+. Select *Applications*.
+. From the Options menu in the *Actions* column for the desired app, select *Back up*.
+. Customize the name of the backup.
+. Choose whether to back up the app from an existing snapshot. If you select this option, you can choose from a list of existing snapshots.
+. Choose a destination bucket for the backup from the list of storage buckets. A write once read many (WORM) bucket is indicated with a status of "Locked" next to the bucket name.
++
+NOTE: If the bucket is an unsupported type, this is indicated when you hover over or select the bucket.
+. Select *Next*.
+. Review the backup summary and select *Back up*.
+
+.Result
+
+Astra Control creates an immutable backup of the app.
+
+[NOTE]
+===============================
+* If your network has an outage or is abnormally slow, a backup operation might time out. This causes the backup to fail.
+* If you try to create two immutable backups of the same app to the same bucket at the same time, Astra Control prevents the second backup from starting. Wait until the first backup is complete before starting another.
+* You cannot cancel a running immutable backup.
+* After a data protection operation (clone, backup, restore) and subsequent persistent volume resize, there is up to a twenty-minute delay before the new volume size is shown in the UI. The data protection operation is successful within minutes, and you can use the management software for the storage backend to confirm the change in volume size.
+===============================
+
+== View snapshots and backups
+
+You can view the snapshots and backups of an app from the Data Protection tab.
+
+NOTE: An immutable backup is indicated with a status of "Locked" next to the bucket it is using.
+
+.Steps
+
+. Select *Applications* and then select the name of an app.
+. Select *Data Protection*.
++
+The snapshots display by default.
+
+. Select *Backups* to see the list of backups.
+
+== Delete snapshots
+
+Delete the scheduled or on-demand snapshots that you no longer need.
+
+NOTE: You cannot delete a snapshot that currently is being replicated.
+
+.Steps
+
+. Select *Applications* and then select the name of a managed app.
+. Select *Data Protection*.
+. From the Options menu in the *Actions* column for the desired snapshot, select *Delete snapshot*.
+//+
+//image:screenshot-delete-snapshot.gif[A screenshot of the Data protection tab for an app where you can delete a snapshot.]
+
+. Type the word "delete" to confirm deletion and then select *Yes, Delete snapshot*.
+
+.Result
+
+Astra Control deletes the snapshot.
+
+== Cancel backups
+
+You can cancel a backup that is in progress.
+
+TIP: To cancel a backup, the backup must be in `Running` state. You cannot cancel a backup that is in `Pending` state.
+
+NOTE: You cannot cancel a running immutable backup.
+
+.Steps
+
+. Select *Applications* and then select the name of an app.
+. Select *Data Protection*.
+. Select *Backups*.
+//+
+//image:screenshot-data-protection-backups.gif[A screenshot of the Backups option that's available in the far right of the data protection tab.]
+
+. From the Options menu in the *Actions* column for the desired backup, select *Cancel*.
+. Type the word "cancel" to confirm the operation and then select *Yes, cancel backup*.
+
+
+== Delete backups
+
+Delete the scheduled or on-demand backups that you no longer need. You cannot delete a backup made to an immutable bucket until the bucket's retention policy enables you to do so.
+
+NOTE: You cannot delete an immutable backup before the retention period expires.
+
+NOTE: If you need to cancel a running backup, use the instructions in <<Cancel backups>>. To delete the backup, wait until it has completed and then use these instructions.
+
+.Steps
+
+. Select *Applications* and then select the name of an app.
+. Select *Data Protection*.
+. Select *Backups*.
+//+
+//image:screenshot-data-protection-backups.gif[A screenshot of the Backups option that's available in the far right of the data protection tab.]
+
+. From the Options menu in the *Actions* column for the desired backup, select *Delete backup*.
+//+
+//image:screenshot-delete-backup.gif[A screenshot of the Data protection tab for an app where you can delete a snapshot.]
+
+. Type the word "delete" to confirm deletion and then select *Yes, Delete backup*.
+
+.Result
+
+Astra Control deletes the backup.

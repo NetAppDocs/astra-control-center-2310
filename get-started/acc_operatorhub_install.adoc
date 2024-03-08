@@ -1,0 +1,239 @@
+---
+sidebar: sidebar
+permalink: get-started/acc_operatorhub_install.html
+keywords: how to install astra control center, operator, operatorhub, openshift, install astra control center operator
+summary: If you use Red Hat OpenShift, you can install the Astra Control Center using an operator.
+---
+
+= Install Astra Control Center using OpenShift OperatorHub
+:hardbreaks:
+:icons: font
+:imagesdir: ../media/get-started/
+
+[.lead]
+If you use Red Hat OpenShift, you can install Astra Control Center using the Red Hat certified operator. Use this procedure to install Astra Control Center from the https://catalog.redhat.com/software/operators/explore[Red Hat Ecosystem Catalog^] or using the Red Hat OpenShift Container Platform.
+
+After you complete this procedure, you must return to the installation procedure to complete the link:../get-started/install_acc.html#verify-system-status[remaining steps^] to verify installation success and log on.
+
+.Before you begin
+* *Meet environmental prerequisites*: link:requirements.html[Before you begin installation, prepare your environment for Astra Control Center deployment^].
+* *Ensure healthy cluster operators and API services*: 
+** From your OpenShift cluster, ensure all cluster operators are in a healthy state:
++
+[source,console]
+----
+oc get clusteroperators
+----
+
+** From your OpenShift cluster, ensure all API services are in a healthy state:
++
+[source,console]
+----
+oc get apiservices
+----
+
+* *Ensure a routable FQDN*: The Astra FQDN you plan to use can be routed to the cluster. This means that you either have a DNS entry in your internal DNS server or you are using a core URL route that is already registered.
+* *Obtain OpenShift Permissions*: You'll need all necessary permissions and access to the Red Hat OpenShift Container Platform to perform the installation steps described.
+* *Configure a cert manager*: If a cert manager already exists in the cluster, you need to perform some link:../get-started/cert-manager-prereqs.html[prerequisite steps^] so that Astra Control Center does not install its own cert manager. By default, Astra Control Center installs its own cert manager during installation.
+* *Consider a service mesh*: It is strongly recommended that Astra Control host cluster communications channels be secured using a link:requirements.html#service-mesh-requirements[supported service mesh^]. 
++
+.Istio service mesh details 
+[%collapsible]
+====
+For Istio service mesh use, you'll need to do the following:
+
+* Add an `istio-injection:enabled` label to the Astra namespace prior to deploying Astra Control Center. 
+* Use the `Generic` <<generic-ingress,ingress setting>> and provide an alternative ingress for link:../get-started/install_acc.html#set-up-ingress-for-load-balancing[external load balancing^].
+* For Red Hat OpenShift clusters, you'll need to define `NetworkAttachmentDefinition` on all associated Astra Control Center namespaces (`netapp-acc-operator`, `netapp-acc`, `netapp-monitoring` for application clusters, or any custom namespaces that have been substituted).
++
+----
+cat <<EOF | oc -n netapp-acc-operator create -f -
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: istio-cni
+EOF
+ 
+cat <<EOF | oc -n netapp-acc create -f -
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: istio-cni
+EOF
+ 
+cat <<EOF | oc -n netapp-monitoring create -f -
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: istio-cni
+EOF
+----
+====
+// End snippet
+* *Kubernetes ingress controller*: If you have a Kubernetes ingress controller that manages external access to services, such as load balancing in a cluster, you need to set it up for use with Astra Control Center:
++
+[%collapsible]
+====
+.. Create the operator namespace:
++
+----
+oc create namespace netapp-acc-operator
+----
+
+.. link:../get-started/install_acc.html#set-up-ingress-for-load-balancing[Complete setup^] for your ingress controller type.
+====
+// End snippet
+
+* *ONTAP SAN driver only*: If you are using an ONTAP SAN driver, be sure that multipath is enabled on all your Kubernetes clusters.
+
+.Steps
+
+* <<Download and extract Astra Control Center>>
+* <<Install the NetApp Astra kubectl plugin>>
+* <<Add the images to your local registry>>
+* <<Find the operator install page>>
+* <<Install the operator>>
+* <<Install Astra Control Center>>
+
+include::../_include/download-extract-acc.adoc[]
+
+== Install the NetApp Astra kubectl plugin
+
+You can use the NetApp Astra kubectl command line plugin to push images to a local Docker repository.
+
+.Before you begin
+
+NetApp provides plugin binaries for different CPU architectures and operating systems. You need to know which CPU and operating system you have before you perform this task.
+
+.Steps
+
+. List the available NetApp Astra kubectl plugin binaries, and note the name of the file you need for your operating system and CPU architecture:
++
+NOTE: The kubectl plugin library is part of the tar bundle and is extracted into the folder `kubectl-astra`.
++
+[source,console]
+----
+ls kubectl-astra/
+----
+
+. Move the correct binary into the current path and rename it to `kubectl-astra`:
++
+[source,console]
+----
+cp kubectl-astra/<binary-name> /usr/local/bin/kubectl-astra
+----
+
+include::../_include/docker-podman-add-images.adoc[]
+
+
+== Find the operator install page
+
+. Complete one of the following procedures to access the operator install page:
+* From Red Hat OpenShift web console:
+.. Log in to the OpenShift Container Platform UI.
+.. From the side menu, select *Operators > OperatorHub*.
++
+//Must be updated every quarterly release
+NOTE: You can upgrade only to the current version of Astra Control Center using this operator.
+
+.. Search for and select the NetApp Astra Control Center operator.
+
++
+image:openshift_operatorhub.png["This image shows the Astra Control Center install page from the OpenShift Container Platform UI"]
+
+* From Red Hat Ecosystem Catalog:
+.. Select the NetApp Astra Control Center https://catalog.redhat.com/software/operators/detail/611fd22aaf489b8bb1d0f274[operator^].
+.. Select *Deploy and Use*.
+
++
+image:red_hat_catalog.png["This image shows the Astra Control Center overview page that is available from the RedHat Ecosystem Catalog"]
+
+== Install the operator
+
+. Complete the *Install Operator* page and install the operator:
++
+NOTE: The operator will be available in all cluster namespaces.
+
+.. Select the operator namespace or `netapp-acc-operator` namespace will be created automatically as part of the operator installation.
+.. Select a manual or automatic approval strategy.
++
+NOTE: Manual approval is recommended. You should only have a single operator instance running per cluster.
+
+.. Select *Install*.
++
+NOTE: If you selected a manual approval strategy, you will be prompted to approve the manual install plan for this operator.
+
+. From the console, go to the OperatorHub menu and confirm that the operator installed successfully.
+
+== Install Astra Control Center
+
+. From the console within the *Astra Control Center* tab of the Astra Control Center operator, select *Create AstraControlCenter*.
+image:openshift_acc-operator_details.png["This image shows the Astra Control Center operator page that has the Astra Control Center tab selected"]
+
+. Complete the `Create AstraControlCenter` form field:
+.. Keep or adjust the Astra Control Center name.
+.. Add labels for the Astra Control Center.
+.. Enable or disable Auto Support. Retaining Auto Support functionality is recommended.
+.. Enter the Astra Control Center FQDN or IP address. Do not enter `http://` or `https://` in the address field.
+.. Enter the Astra Control Center version; for example, 23.10.0-68.
+.. Enter an account name, email address, and admin last name.
+.. Choose a volume reclaim policy of `Retain`, `Recycle`, or `Delete`. The default value is `Retain`.
+.. Select the scaleSize of the installation.
++
+NOTE: By default, Astra will use High Availability (HA) `scaleSize` of `Medium`, which deploys most services in HA and deploys multiple replicas for redundancy. With `scaleSize` as `Small`, Astra will reduce the number of replicas for all services except for essential services to reduce consumption.
++
+
+.. [[generic-ingress]]Select the ingress type:
++
+* *`Generic`* (`ingressType: "Generic"`) (Default)
++
+Use this option when you have another ingress controller in use or would prefer to use your own ingress controller. After Astra Control Center is deployed, you will need to configure the link:../get-started/install_acc.html#set-up-ingress-for-load-balancing[ingress controller^] to expose Astra Control Center with a URL.
+
+* *`AccTraefik`* (`ingressType: "AccTraefik"`)
++
+Use this option when you would prefer not to configure an ingress controller. This deploys the Astra Control Center `traefik` gateway as a Kubernetes "LoadBalancer" type service.
++
+Astra Control Center uses a service of the type "LoadBalancer" (`svc/traefik` in the Astra Control Center namespace), and requires that it be assigned an accessible external IP address. If load balancers are permitted in your environment and you don't already have one configured, you can use MetalLB or another external service load balancer to assign an external IP address to the service. In the internal DNS server configuration, you should point the chosen DNS name for Astra Control Center to the load-balanced IP address.
++
+NOTE: For details about the service type of "LoadBalancer" and ingress, refer to link:../get-started/requirements.html[Requirements^].
+
+.. In *Image Registry*, enter your local container image registry path. Do not enter `http://` or `https://` in the address field.
+.. If you use an image registry that requires authentication, enter the image secret.
++
+NOTE: If you use a registry that requires authentication, <<Create a registry secret,create a secret on the cluster>>.
+
+.. Enter the admin first name.
+.. Configure resources scaling.
+.. Provide the default storage class.
++
+NOTE: If a default storage class is configured, ensure that it is the only storage class that has the default annotation.
+
+.. Define CRD handling preferences.
+
+. Select the YAML view to review the settings you have selected.
+. Select `Create`.
+
+== Create a registry secret
+
+If you use a registry that requires authentication, create a secret on the OpenShift cluster and enter the secret name in the `Create AstraControlCenter` form field.
+
+. Create a namespace for the Astra Control Center operator:
++
+----
+oc create ns [netapp-acc-operator or custom namespace]
+----
+
+. Create a secret in this namespace:
++
+----
+oc create secret docker-registry astra-registry-cred n [netapp-acc-operator or custom namespace] --docker-server=[your_registry_path] --docker username=[username] --docker-password=[token]
+----
++
+NOTE: Astra Control supports Docker registry secrets only.
+
+. Complete the remaining fields in <<Install Astra Control Center,the Create AstraControlCenter form field>>.
+
+
+== What's next
+
+Complete the link:../get-started/install_acc.html#verify-system-status[remaining steps^] to verify that Astra Control Center installed successfully, set up an ingress controller (optional), and log in to the UI. Additionally, you will need to perform link:setup_overview.html[setup tasks^] after completing installation.

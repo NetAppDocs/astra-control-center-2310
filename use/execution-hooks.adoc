@@ -1,0 +1,461 @@
+---
+sidebar: sidebar
+permalink: use/execution-hooks.html
+keywords: execution hook, snapshot, hook, kubernetes, astra control, astra
+summary: An execution hook is a custom script that you can run before or after a snapshot of a managed app.
+---
+
+= Manage app execution hooks
+:hardbreaks:
+:icons: font
+:imagesdir: ../media/use/
+
+[.lead]
+An execution hook is a custom action that you can configure to run in conjunction with a data protection operation of a managed app. For example, if you have a database app, you can use an execution hook to pause all database transactions before a snapshot, and resume transactions after the snapshot is complete. This ensures application-consistent snapshots.
+
+== Types of execution hooks
+Astra Control Center supports the following types of execution hooks, based on when they can be run:
+
+* Pre-snapshot
+* Post-snapshot
+* Pre-backup
+* Post-backup
+* Post-restore
+* Post-failover
+
+== Execution hook filters
+When you add or edit an execution hook to an application, you can add filters to an execution hook to manage which containers the hook will match. Filters are useful for applications that use the same container image on all containers, but might use each image for a different purpose (such as Elasticsearch). Filters allow you to create scenarios where execution hooks run on some but not necessarily all identical containers. If you create multiple filters for a single execution hook, they are combined with a logical AND operator. You can have up to 10 active filters per execution hook.
+
+Each filter you add to an execution hook uses a regular expression to match containers in your cluster. When a hook matches a container, the hook will run its associated script on that container. Regular expressions for filters use the Regular Expression 2 (RE2) syntax, which does not support creating a filter that excludes containers from the list of matches. For information on the syntax that Astra Control supports for regular expressions in execution hook filters, see https://github.com/google/re2/wiki/Syntax[Regular Expression 2 (RE2) syntax support^].
+
+NOTE: If you add a namespace filter to an execution hook that runs after a restore or clone operation and the restore or clone source and destination are in different namespaces, the namespace filter is only applied to the destination namespace.
+
+////
+== Default execution hooks and regular expressions
+For some apps, Astra Control comes with default execution hooks, provided by NetApp, that handle freeze and thaw operations before and after snapshots. Astra Control uses regular expressions to match an app's container image to these apps:
+
+* MariaDB
+** Matching regular expression: \bmariadb\b
+* MySQL
+** Matching regular expression: \bmysql\b
+* PostgreSQL
+** Matching regular expression: \bpostgresql\b
+
+If there is a match, the NetApp-provided default execution hooks for that app appear in the app's list of active execution hooks, and those hooks run automatically when snapshots of that app are taken. If one of your custom apps has a similar image name that happens to match one of the regular expressions (and you don't want to use the default execution hooks), you can either change the image name, or disable the default execution hook for that app and use a custom hook instead.
+////
+
+
+//You can use the NetApp-provided hooks for these apps, or disable them and use your own.
+//You cannot delete or modify the default execution hooks.
+
+== Important notes about custom execution hooks
+Consider the following when planning execution hooks for your apps.
+
+[NOTE]
+====
+Because execution hooks often reduce or completely disable the functionality of the application they are running against, you should always try to minimize the time your custom execution hooks take to run.
+If you start a backup or snapshot operation with associated execution hooks but then cancel it, the hooks are still allowed to run if the backup or snapshot operation has already begun. This means that the logic used in a post-backup execution hook cannot assume that the backup was completed.
+====
+
+* The execution hooks feature is disabled by default for new Astra Control deployments.
+** You need to enable the execution hooks feature before you can use execution hooks.
+** Owner or Admin users can enable or disable the execution hooks feature for all users defined in the current Astra Control account. Refer to <<Enable the execution hooks feature>> and <<Disable the execution hooks feature>> for instructions.
+** The feature enablement status is preserved during Astra Control upgrades.
+* An execution hook must use a script to perform actions. Many execution hooks can reference the same script.
+* Astra Control requires the scripts that execution hooks use to be written in the format of executable shell scripts.
+* Script size is limited to 96KB.
+* Astra Control uses execution hook settings and any matching criteria to determine which hooks are applicable to a snapshot, backup, or restore operation.
+* All execution hook failures are soft failures; other hooks and the data protection operation are still attempted even if a hook fails. However, when a hook fails, a warning event is recorded in the *Activity* page event log.
+* To create, edit, or delete execution hooks, you must be a user with Owner, Admin, or Member permissions.
+* If an execution hook takes longer than 25 minutes to run, the hook will fail, creating an event log entry with a return code of "N/A". Any affected snapshot will time out and be marked as failed, with a resulting event log entry noting the timeout.
+* For ad hoc data protection operations, all hook events are generated and saved in the *Activity* page event log. However, for scheduled data protection operations, only hook failure events are recorded in the event log (events generated by the scheduled data protection operations themselves are still recorded).
+* If Astra Control Center fails over a replicated source app to the destination app, any post-failover execution hooks that are enabled for the source app are run for the destination app after the failover is complete.
++
+NOTE: If you have been running post-restore hooks with Astra Control Center 23.04 and upgraded your Astra Control Center to 23.07 or later, post-restore execution hooks will no longer be executed after a failover replication. You need to create new post-failover execution hooks for your apps. Alternatively, you can change the operation type of existing post-restore hooks intended for failovers from "post-restore" to "post-failover".
+
+=== Order of execution
+When a data protection operation is run, execution hook events take place in the following order:
+
+//. Any applicable NetApp-provided default pre-snapshot execution hooks are run on the appropriate containers.
+. Any applicable custom pre-operation execution hooks are run on the appropriate containers. You can create and run as many custom pre-operation hooks as you need, but the order of execution of these hooks before the operation is neither guaranteed nor configurable.
+. The data protection operation is performed.
+. Any applicable custom post-operation execution hooks are run on the appropriate containers. You can create and run as many custom post-operation hooks as you need, but the order of execution of these hooks after the operation is neither guaranteed nor configurable.
+//. Any applicable NetApp-provided default post-snapshot execution hooks are run on the appropriate containers.
+
+If you create multiple execution hooks of the same type (for example, pre-snapshot), the order of execution of those hooks is not guaranteed. However, the order of execution of hooks of different types is guaranteed. For example, the order of execution of a configuration that has all of the different types of hooks would look like this:
+
+. Pre-backup hooks executed
+. Pre-snapshot hooks executed
+. Post-snapshot hooks executed
+. Post-backup hooks executed
+. Post-restore hooks executed
+
+You can see an example of this configuration in scenario number 2 from the table in <<Determine whether a hook will run>>.
+
+NOTE: You should always test your execution hook scripts before enabling them in a production environment. You can use the 'kubectl exec' command to conveniently test the scripts. After you enable the execution hooks in a production environment, test the resulting snapshots and backups to ensure they are consistent. You can do this by cloning the app to a temporary namespace, restoring the snapshot or backup, and then testing the app.
+
+=== Determine whether a hook will run
+Use the following table to help determine if a custom execution hook will run for your app.
+
+Note that all high-level app operations consist of running one of the basic operations of snapshot, backup, or restore. Depending on the scenario, a clone operation can consists of various combinations of these operations, so what execution hooks a clone operation runs will vary.
+
+In-place restore operations require an existing snapshot or backup, so these operations don't run snapshot or backup hooks.
+
+[NOTE]
+====
+If you start but then cancel a backup that includes a snapshot and there are associated execution hooks, some hooks might run, and others might not. This means that a post-backup execution hook cannot assume that the backup was completed. Keep in mind the following points for cancelled backups with associated execution hooks:
+
+* The pre-backup and post-backup hooks are always run.
+* If the backup includes a new snapshot and the snapshot has started, the pre-snapshot and post-snapshot hooks are run.
+* If the backup is cancelled prior to the snapshot starting, the pre-snapshot and post-snapshot hooks are not run.
+====
+
+|===
+|Scenario |Operation |Existing snapshot |Existing backup |Namespace |Cluster |Snapshot hooks run |Backup hooks run |Restore hooks run| Failover hooks run
+
+|1
+|Clone
+|N
+|N
+|New
+|Same
+|Y
+|N
+|Y
+|N
+
+|2
+|Clone
+|N
+|N
+|New
+|Different
+|Y
+|Y
+|Y
+|N
+
+|3
+|Clone or restore
+|Y
+|N
+|New
+|Same
+|N
+|N
+|Y
+|N
+
+|4
+|Clone or restore
+|N
+|Y
+|New
+|Same
+|N
+|N
+|Y
+|N
+
+|5
+|Clone or restore
+|Y
+|N
+|New
+|Different
+|N
+|N
+|Y
+|N
+
+|6
+|Clone or restore
+|N
+|Y
+|New
+|Different
+|N
+|N
+|Y
+|N
+
+|7
+|Restore
+|Y
+|N
+|Existing
+|Same
+|N
+|N
+|Y
+|N
+
+|8
+|Restore
+|N
+|Y
+|Existing
+|Same
+|N
+|N
+|Y
+|N
+
+|9
+|Snapshot
+|N/A
+|N/A
+|N/A
+|N/A
+|Y
+|N/A
+|N/A
+|N
+
+|10
+|Backup
+|N
+|N/A
+|N/A
+|N/A
+|Y
+|Y
+|N/A
+|N
+
+|11
+|Backup
+|Y
+|N/A
+|N/A
+|N/A
+|N
+|N
+|N/A
+|N
+
+|12
+|Failover
+|Y
+|N/A
+|Created by replication
+|Different
+|N
+|N
+|N
+|Y
+
+|13
+|Failover
+|Y
+|N/A
+|Created by replication
+|Same
+|N
+|N
+|N
+|Y
+
+|===
+
+== Execution hook examples
+Visit the https://github.com/NetApp/Verda[NetApp Verda GitHub project] to download real execution hooks for popular apps such as Apache Cassandra and Elasticsearch. You can also see examples and get ideas for structuring your own custom execution hooks.
+
+== Enable the execution hooks feature
+If you are an Owner or Admin user, you can enable the execution hooks feature. When you enable the feature, all users defined in this Astra Control account can use execution hooks and view existing execution hooks and hook scripts.
+
+.Steps
+
+. Go to *Applications* and then select the name of a managed app.
+. Select the *Execution hooks* tab.
+. Select *Enable execution hooks*.
++
+The *Account* > *Feature settings* tab appears.
+. In the *Execution hooks* pane, select the settings menu.
+. Select *Enable*.
+. Note the security warning that appears.
+. Select *Yes, enable execution hooks*.
+
+== Disable the execution hooks feature
+If you are an Owner or Admin user, you can disable the execution hooks feature for all users defined in this Astra Control account. You must delete all existing execution hooks before you can disable the execution hooks feature. Refer to <<Delete an execution hook>> for instructions on deleting an existing execution hook.
+
+.Steps
+
+. Go to *Account* and then select the *Feature settings* tab.
+
+. Select the *Execution hooks* tab.
+. In the *Execution hooks* pane, select the settings menu.
+. Select *Disable*.
+. Note the warning that appears.
+. Type `disable` to confirm that you want to disable the feature for all users.
+. Select *Yes, disable*.
+
+== View existing execution hooks
+You can view existing custom execution hooks for an app.
+
+.Steps
+
+. Go to *Applications* and then select the name of a managed app.
+. Select the *Execution hooks* tab.
++
+You can view all enabled or disabled execution hooks in the resulting list. You can see a hook's status, how many containers it matches, creation time, and when it runs (pre- or post-operation). You can select the `+` icon next to the hook name to expand the list of containers it will run on. To view event logs surrounding execution hooks for this application, go to the *Activity* tab.
+
+== View existing scripts
+You can view the existing uploaded scripts. You can also see which scripts are in use, and what hooks are using them, on this page.
+
+.Steps
+
+. Go to *Account*.
+. Select the *Scripts* tab.
++
+You can see a list of existing uploaded scripts on this page. The *Used by* column shows which execution hooks are using each script.
+
+== Add a script
+Each execution hook must use a script to perform actions. You can add one or more scripts that execution hooks can reference. Many execution hooks can reference the same script; this allows you to update many execution hooks by only changing one script.
+
+.Steps
+
+. Ensure that the execution hooks feature is <<Enable the execution hooks feature,enabled>>.
+. Go to *Account*.
+. Select the *Scripts* tab.
+. Select *Add*.
+. Do one of the following:
+* Upload a custom script.
+.. Select the *Upload file* option.
+.. Browse to a file and upload it.
+.. Give the script a unique name.
+.. (Optional) Enter any notes other administrators should know about the script.
+.. Select *Save script*.
+* Paste in a custom script from the clipboard.
+.. Select the *Paste or type* option.
+.. Select the text field and paste the script text into the field.
+.. Give the script a unique name.
+.. (Optional) Enter any notes other administrators should know about the script.
+. Select *Save script*.
+
+.Result
+The new script appears in the list on the *Scripts* tab.
+
+
+== Delete a script
+You can remove a script from the system if it is no longer needed and not used by any execution hooks.
+
+.Steps
+
+. Go to *Account*.
+. Select the *Scripts* tab.
+. Choose a script you want to remove, and select the menu in the *Actions* column.
+. Select *Delete*.
+
+NOTE: If the script is associated with one or more execution hooks, the *Delete* action is unavailable. To delete the script, first edit the associated execution hooks and associate them with a different script.
+
+== Create a custom execution hook
+You can create a custom execution hook for an app and add it to Astra Control. Refer to <<Execution hook examples>> for hook examples. You need to have Owner, Admin, or Member permissions to create execution hooks.
+
+NOTE: When you create a custom shell script to use as an execution hook, remember to specify the appropriate shell at the beginning of the file, unless you are running specific commands or providing the full path to an executable.
+
+.Steps
+
+. Ensure that the execution hooks feature is <<Enable the execution hooks feature,enabled>>.
+. Select *Applications* and then select the name of a managed app.
+. Select the *Execution hooks* tab.
+. Select *Add*.
+. In the *Hook Details* area:
+.. Determine when the hook should run by selecting an operation type from the *Operation* drop-down menu.
+.. Enter a unique name for the hook.
+.. (Optional) Enter any arguments to pass to the hook during execution, pressing the Enter key after each argument you enter to record each one.
+. (Optional) In the *Hook Filter Details* area, you can add filters to control which containers the execution hook runs on:
+.. Select *Add filter*.
+.. In the *Hook filter type* column, choose an attribute on which to filter from the drop-down menu.
+.. In the *Regex* column, enter a regular expression to use as the filter. Astra Control uses the https://github.com/google/re2/wiki/Syntax[Regular Expression 2 (RE2) regex syntax^].
++
+NOTE: If you filter on the exact name of an attribute (such as a pod name) with  no other text in the regular expression field, a substring match is performed. To match an exact name and only that name, use the exact string match syntax (for example, `^exact_podname$`).
+
+.. To add more filters, select *Add filter*.
++
+NOTE: Multiple filters for an execution hook are combined with a logical AND operator. You can have up to 10 active filters per execution hook.
+
+. When done, select *Next*.
+. In the *Script* area, do one of the following:
+* Add a new script.
+.. Select *Add*.
+.. Do one of the following:
+** Upload a custom script.
+... Select the *Upload file* option.
+... Browse to a file and upload it.
+... Give the script a unique name.
+... (Optional) Enter any notes other administrators should know about the script.
+... Select *Save script*.
+** Paste in a custom script from the clipboard.
+... Select the *Paste or type* option.
+... Select the text field and paste the script text into the field.
+... Give the script a unique name.
+... (Optional) Enter any notes other administrators should know about the script.
+* Select an existing script from the list.
++
+This instructs the execution hook to use this script.
+. Select *Next*.
+. Review the execution hook configuration.
+. Select *Add*.
+
+== Check the state of an execution hook
+After a snapshot, backup, or restore operation finishes running, you can check the state of execution hooks that ran as part of the operation. You can use this status information to determine if you want to keep the execution hook, modify it, or delete it.
+
+.Steps
+
+. Select *Applications* and then select the name of a managed app.
+. Select the *Data protection* tab.
+. Select *Snapshots* to see running snapshots, or *Backups* to see running backups.
++
+The *Hook state* shows the status of the execution hook run after the operation is complete. You can hover over the state for more details. For example, if there are execution hook failures during a snapshot, hovering over the hook state for that snapshot gives a list of failed execution hooks. To see reasons for each failure, you can check the *Activity* page in the left-side navigation area.
+
+== View script usage
+You can see which execution hooks use a particular script in the Astra Control web UI.
+
+.Steps
+
+. Select *Account*.
+. Select the *Scripts* tab.
++
+The *Used by* column in the list of scripts contains details on which hooks are using each script in the list.
+. Select the information in the *Used by* column for a script you are interested in.
++
+A more detailed list appears, with the names of hooks that are using the script and the type of operation they are configured to run with.
+
+== Edit an execution hook
+You can edit an execution hook if you want to change its attributes, filters, or the script that it uses. You need to have Owner, Admin, or Member permissions to edit execution hooks.
+
+.Steps
+
+. Select *Applications* and then select the name of a managed app.
+. Select the *Execution hooks* tab.
+. Select the Options menu in the *Actions* column for a hook that you wish to edit.
+. Select *Edit*.
+. Make any needed changes, selecting *Next* after you complete each section.
+. Select *Save*.
+
+== Disable an execution hook
+You can disable an execution hook if you want to temporarily prevent it from running before or after a snapshot of an app. You need to have Owner, Admin, or Member permissions to disable execution hooks.
+
+.Steps
+
+. Select *Applications* and then select the name of a managed app.
+. Select the *Execution hooks* tab.
+. Select the Options menu in the *Actions* column for a hook that you wish to disable.
+. Select *Disable*.
+
+== Delete an execution hook
+You can remove an execution hook entirely if you no longer need it. You need to have Owner, Admin, or Member permissions to delete execution hooks.
+
+.Steps
+
+. Select *Applications* and then select the name of a managed app.
+. Select the *Execution hooks* tab.
+. Select the Options menu in the *Actions* column for a hook that you wish to delete.
+. Select *Delete*.
+. In the resulting dialog, type "delete" to confirm.
+. Select *Yes, delete execution hook*.
+
+== For more information
+
+* https://github.com/NetApp/Verda[NetApp Verda GitHub project]
