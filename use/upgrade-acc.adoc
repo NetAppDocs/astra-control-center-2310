@@ -355,6 +355,17 @@ spec:
   *astraVersion: "[Version number]"*
 ----
 
+. Change the Astra version number (`astraVersion` inside of `spec`) from `23.07.0` to `23.10.0`:
++
+NOTE: You cannot upgrade directly from a version that is two or more releases behind the current release. For a complete list of released versions, see the link:../release-notes/whats-new.html[release notes].
++
+[subs=+quotes]
+----
+spec:
+  accountName: "Example"
+  *astraVersion: "[Version number]"*
+----
+
 . Verify that your image registry path matches the registry path you pushed the images to in a <<Add the images to your local registry,previous step>>. Update `imageRegistry` inside of `spec` if the registry has changed since your last installation.
 +
 ----
